@@ -5,45 +5,29 @@ const TENANT = 'common'; // multi-tenant signin
 const clientId = process.env.AZURE_CLIENT_ID;
 const clientSecret = process.env.AZURE_CLIENT_SECRET;
 const redirectUri = process.env.AZURE_REDIRECT_URI;
-const appBase = process.env.APP_BASE_URL || `http://localhost:${process.env.PORT||3000}`;
 
-// Simple in-memory user/token store (replace with DB for production)
-// key: userId, value: { id, preferred_username, tenantId, accessToken, refreshToken, expiresAt }
-const store = new Map();
-
-function base64UrlDecode(str) {
-  const padded = str.replace(/-/g, '+').replace(/_/g, '/');
-  const pad = padded.length % 4 === 0 ? '' : '='.repeat(4 - (padded.length % 4));
-  return Buffer.from(padded + pad, 'base64').toString('utf8');
-}
-
-function decodeIdToken(id_token) {
-  // naive decode without verification for demo
-  const parts = id_token.split('.');
-  if (parts.length < 2) return {};
-  const payload = JSON.parse(base64UrlDecode(parts[1]));
-  return payload;
-}
-
-// Build authorization URL
-function getAuthUrl() {
+// Build authorization URL; accepts optional incomingState (already encoded)
+function getAuthUrl(passedState) {
   const scopes = [
     'openid',
     'profile',
-    'offline_access', // to receive refresh_token
-    // delegated ARM permission
+    'offline_access',
     'https://management.azure.com/user_impersonation'
   ];
+
   const url = new URL(`https://login.microsoftonline.com/${TENANT}/oauth2/v2.0/authorize`);
   url.searchParams.set('client_id', clientId);
   url.searchParams.set('response_type', 'code');
   url.searchParams.set('redirect_uri', redirectUri);
   url.searchParams.set('response_mode', 'query');
   url.searchParams.set('scope', scopes.join(' '));
-  // optionally set a state param
-  url.searchParams.set('state', uuidv4());
+
+  // THE KEY FIX:
+  url.searchParams.set('state', passedState);
+
   return url.toString();
 }
+
 
 async function acquireTokenByCode(code) {
   const tokenUrl = `https://login.microsoftonline.com/${TENANT}/oauth2/v2.0/token`;
@@ -58,12 +42,10 @@ async function acquireTokenByCode(code) {
   const resp = await axios.post(tokenUrl, params.toString(), {
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
   });
-  // resp.data: access_token, expires_in, refresh_token, id_token
   return resp.data;
 }
 
 async function refreshToken(refresh_token, tenantIdFromUser) {
-  // Use tenant-specific token endpoint
   const tokenUrl = `https://login.microsoftonline.com/${tenantIdFromUser}/oauth2/v2.0/token`;
   const params = new URLSearchParams();
   params.append('client_id', clientId);
@@ -78,45 +60,51 @@ async function refreshToken(refresh_token, tenantIdFromUser) {
   return resp.data;
 }
 
-async function registerOrUpdateUserFromTokenResponse(tokenResponse) {
-  // tokenResponse includes id_token (contains user info + tenant) and access/refresh tokens
-  const idToken = tokenResponse.id_token;
-  const payload = decodeIdToken(idToken);
-  const userId = payload.oid || payload.sub || payload.email || payload.preferred_username;
-  if (!userId) throw new Error('id_token does not contain user id (oid)');
+// Helper: decode id_token payload (no signature verification — acceptable for flow mapping; verify in prod)
+function decodeIdToken(id_token) {
+  if (!id_token) return {};
+  const parts = id_token.split('.');
+  if (parts.length < 2) return {};
+  const payload = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+  const buf = Buffer.from(payload, 'base64');
+  return JSON.parse(buf.toString('utf8'));
+}
 
-  const tenantId = payload.tid; // user's tenant
+/**
+ * Save token data under cliqUserId using provided store implementation.
+ * tokenResponse: access_token, refresh_token, id_token, expires_in
+ * store: must implement upsert(cliqUserId, data) and get(cliqUserId)
+ */
+async function registerOrUpdateUserFromTokenResponse(tokenResponse, cliqUserId, store) {
+  const payload = decodeIdToken(tokenResponse.id_token);
+  const azureUserId = payload.oid || payload.sub;
+  const tenantId = payload.tid;
   const now = Date.now();
-  const expiresAt = now + (tokenResponse.expires_in * 1000) - 30000; // 30s buffer
-
-  const user = {
-    id: userId,
-    preferred_username: payload.preferred_username || payload.email || payload.upn,
-    displayName: payload.name,
+  const expiresAt = now + (tokenResponse.expires_in * 1000) - 30000;
+  const userRow = {
+    azureUserId,
     tenantId,
     accessToken: tokenResponse.access_token,
     refreshToken: tokenResponse.refresh_token,
     expiresAt
   };
-
-  store.set(userId, user);
-  return user;
+  await store.upsert(cliqUserId, userRow);
+  return { id: cliqUserId, ...userRow };
 }
 
-async function getUser(userId) {
-  return store.get(userId);
+async function getUser(cliqUserId, store) {
+  // returns the stored row for the cliq user
+  return store.get(cliqUserId);
 }
 
-// ensure access token valid; refresh if expired
-async function ensureValidAccessTokenForUser(userId) {
-  const user = await getUser(userId);
+async function ensureValidAccessTokenForUser(cliqUserId, store) {
+  const user = await getUser(cliqUserId, store);
   if (!user) throw new Error('user not found');
 
   const now = Date.now();
   if (user.accessToken && user.expiresAt && user.expiresAt > now + 5000) {
     return user.accessToken;
   }
-
   if (!user.refreshToken) throw new Error('no refresh token available; reauthenticate');
 
   // refresh
@@ -124,7 +112,7 @@ async function ensureValidAccessTokenForUser(userId) {
   user.accessToken = tokenResponse.access_token;
   user.refreshToken = tokenResponse.refresh_token || user.refreshToken;
   user.expiresAt = Date.now() + (tokenResponse.expires_in * 1000) - 30000;
-  store.set(userId, user);
+  await store.upsert(cliqUserId, user);
   return user.accessToken;
 }
 
@@ -133,7 +121,5 @@ module.exports = {
   acquireTokenByCode,
   registerOrUpdateUserFromTokenResponse,
   getUser,
-  ensureValidAccessTokenForUser,
-  // exports for tests / debugging
-  _store: store
+  ensureValidAccessTokenForUser
 };
