@@ -14,6 +14,21 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+app.use(express.urlencoded({ extended: true }));
+app.use((req, res, next) => {
+  // Zoho sometimes sends multipart encoded key/value pairs under req.body._raw
+  if (typeof req.body === 'string') {
+    try { req.body = JSON.parse(req.body); } catch (e) {}
+  }
+
+  // If Zoho sends nested JSON as strings, parse them
+  if (req.body?.user && typeof req.body.user === 'string') {
+    try { req.body.user = JSON.parse(req.body.user); } catch (e) {}
+  }
+
+  next();
+});
+
 // Health
 app.get('/', (req, res) => res.send({ ok: true, message: 'Cliq Azure OAuth backend running' }));
 
