@@ -6,6 +6,7 @@ const auth = require('./src/auth');
 const azureClient = require('./src/azureClient');
 const state = require('./src/state');
 const cliqApi = require('./src/cliqApi');
+const { createLoginCard, createResponseCard } = require('./src/createCliqCard');
 
 const storeMode = process.env.STORAGE_MODE || 'file';
 const store = require(`./src/store_${storeMode}`); // store_file or store_cliq (template)
@@ -24,8 +25,6 @@ app.get('/', (req, res) => res.send({ ok: true, message: 'Cliq Azure OAuth backe
  */
 app.post('/cliq/appstatus', async (req, res) => {
   try {
-    console.log(req.body); // log full payload for debugging
-    console.log(req.headers); // log full payload for debugging
     const cliqUser = req.body.user;
     const argsText = (req.body.text || '').trim(); // supports one param usage
     const appName = argsText.split(/\s+/)[0]; // basic parsing; or parse JSON payload
@@ -54,27 +53,8 @@ app.post('/cliq/appstatus', async (req, res) => {
 
       // Return a Cliq card instructing user to authenticate
       // Cliq will render the returned JSON as a card.
-      return res.send({
-        card: {
-          theme: 'modern',
-          title: 'Sign in to Azure',
-          subtitle: `To check "${appName}" we need you to sign in to your Azure account.`,
-          sections: [
-            {
-              widgets: [
-                {
-                  type: 'button',
-                  text: 'Sign in with Microsoft',
-                  onClick: {
-                    type: 'openUrl',
-                    url: loginUrl
-                  }
-                }
-              ]
-            }
-          ]
-        }
-      });
+      loginCard = createLoginCard(appName, loginUrl);
+      return res.send(loginCard);
     }
 
     // User has stored tokens — ensure valid and fetch status
@@ -105,17 +85,7 @@ app.post('/cliq/appstatus', async (req, res) => {
     const appInfo = await azureClient.getWebApp(subId, rg, appName, accessToken);
 
     // Return a nice card with status
-    const responseCard = {
-      card: {
-        theme: 'modern',
-        title: `Azure App Status — ${appInfo.name}`,
-        sections: [
-          { widgets: [{ type: 'text', text: `State: **${appInfo.state || 'Unknown'}**` }] },
-          { widgets: [{ type: 'text', text: `Hostnames: ${Array.isArray(appInfo.hostNames) ? appInfo.hostNames.join(', ') : appInfo.hostNames}` }] },
-          { widgets: [{ type: 'text', text: `Last Modified: ${appInfo.lastModified || 'N/A'}` }] }
-        ]
-      }
-    };
+    const responseCard = createResponseCard(appInfo);
 
     return res.send(responseCard);
 
@@ -181,17 +151,7 @@ app.get('/auth/callback', async (req, res) => {
       }
 
       const appInfo = await azureClient.getWebApp(subId, rg, appName, accessToken);
-      const card = {
-        card: {
-          theme: 'modern',
-          title: `Azure App Status — ${appInfo.name}`,
-          sections: [
-            { widgets: [{ type: 'text', text: `State: **${appInfo.state || 'Unknown'}**` }] },
-            { widgets: [{ type: 'text', text: `Hostnames: ${Array.isArray(appInfo.hostNames) ? appInfo.hostNames.join(', ') : appInfo.hostNames}` }] },
-            { widgets: [{ type: 'text', text: `Last Modified: ${appInfo.lastModified || 'N/A'}` }] }
-          ]
-        }
-      };
+      const card = createResponseCard(appInfo);
       await cliqApi.sendMessageToCliqUser(cliqUserId, card);
     }
 
