@@ -12,9 +12,9 @@ const store = require(`./src/store_${storeMode}`); // store_file or store_cliq (
 
 const app = express();
 app.use(cors());
-app.use(express.json());
+// Only parse JSON on POST routes that expect it
+app.post("/cliq/appstatus", express.json(), express.urlencoded({ extended: true }), yourHandler);
 
-app.use(express.urlencoded({ extended: true }));
 app.use((req, res, next) => {
   // Zoho sometimes sends multipart encoded key/value pairs under req.body._raw
   if (typeof req.body === "string") {
