@@ -32,9 +32,10 @@ function createResponseCard(appInfo) {
         title: `Azure App Status — ${appInfo.name}`,
       },
       slides: [
-          { type: 'text', data: `State: **${appInfo.state || 'Unknown'}**` },
-          { type: 'text', data: `Hostnames: ${Array.isArray(appInfo.hostNames) ? appInfo.hostNames.join(', ') : appInfo.hostNames}` },
-          { type: 'text', data: `Last Modified: ${appInfo.lastModified || 'N/A'}` }
+          { type: 'text', data: `*State*: ${appInfo.state || 'Unknown'}` },
+          { type: 'text', data: `*Hostnames*: ${Array.isArray(appInfo.hostNames) ? appInfo.hostNames.join(', ') : appInfo.hostNames}` },
+          { type: 'text', data: `*Last Modified*: ${appInfo.lastModified || 'N/A'}` },
+          { type: 'text', data: `*Raw*: ${appInfo.raw || 'Unknown'}` },
         ]
     };
 
