@@ -40,7 +40,7 @@ app.get("/", (req, res) => res.send({ ok: true, message: "Cliq Azure OAuth backe
  * Cliq command entrypoint
  * Cliq will POST the full command payload here.
  * Example body (from Cliq): { user: { id: 'zl_123' }, text: 'myapp' ... }
- */
+*/
 app.post("/cliq/appstatus", async (req, res) => {
   console.log("BODY CONTENT:", req.body);
   console.log("HEADERS:", req.headers);
@@ -48,7 +48,8 @@ app.post("/cliq/appstatus", async (req, res) => {
     const cliqUser = req.body.user;
     const argsText = (req.body.text || "").trim(); // supports one param usage
     const appName = argsText.split(/\s+/)[0]; // basic parsing; or parse JSON payload
-
+    let rg = req.body.resourceGroup;
+    
     if (!cliqUser || !cliqUser.id) {
       return res.send({ text: "Error: missing Cliq user id" });
     }
@@ -112,7 +113,6 @@ app.post("/cliq/appstatus", async (req, res) => {
     }
 
     // Try to find resource group automatically
-    let rg = req.body.resourceGroup;
     if (!rg) {
       const found = await azureClient.findWebApp(subId, accessToken, appName);
       rg = found && found.resourceGroup;
