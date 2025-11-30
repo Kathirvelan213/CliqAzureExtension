@@ -42,7 +42,7 @@ app.get("/", (req, res) => res.send({ ok: true, message: "Cliq Azure OAuth backe
  * Example body (from Cliq): { user: { id: 'zl_123' }, text: 'myapp' ... }
  */
 app.post("/cliq/appstatus", async (req, res) => {
-  console.log("BODY TYPE:", typeof req.body);
+  console.log("BODY CONTENT:", req.body);
   console.log("HEADERS:", req.headers);
   try {
     const cliqUser = req.body.user;
