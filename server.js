@@ -60,6 +60,7 @@ app.post("/cliq/appstatus", async (req, res) => {
 
     // Check storage for tokens for this cliqUserId
     const tokenRow = await store.get(cliqUserId);
+    console.log("TOKEN ROW:", tokenRow);
 
     if (!tokenRow || !tokenRow.accessToken) {
       // Build state: contains cliqUserId + original command arguments
