@@ -67,7 +67,7 @@ app.post("/cliq/appstatus", async (req, res) => {
       const encoded = state.encodeState({
         cliqUserId,
         command: "appstatus",
-        args: { appName },
+        args: { appName, resourceGroup: rg },
       });
 
       const loginUrl = `${process.env.APP_BASE_URL}/auth/login?state=${encoded}`;
@@ -191,8 +191,14 @@ app.get("/auth/callback", async (req, res) => {
 
       const appName = decoded.args.appName;
       // determine rg
-      const found = await azureClient.findWebApp(subId, accessToken, appName);
-      const rg = found && found.resourceGroup;
+      const rg = decoded.args.resourceGroup;
+      let finalRg = rg;
+
+      // only fallback if missing
+      if (!finalRg) {
+        const found = await azureClient.findWebApp(subId, accessToken, appName);
+        finalRg = found && found.resourceGroup;
+      }
       if (!rg) {
         await cliqApi.sendMessageToCliqUser(cliqUserId, { text: `Could not determine resource group for ${appName}. Provide resourceGroup.` });
         return res.send("Done — ambiguous resource group");
