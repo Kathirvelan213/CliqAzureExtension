@@ -1,74 +1,53 @@
-require("dotenv").config();
-const express = require("express");
-const cors = require("cors");
+require('dotenv').config();
+const express = require('express');
+const cors = require('cors');
 
-const auth = require("./src/auth");
-const azureClient = require("./src/azureClient");
-const state = require("./src/state");
-const cliqApi = require("./src/cliqApi");
+const auth = require('./src/auth');
+const azureClient = require('./src/azureClient');
+const state = require('./src/state');
+const cliqApi = require('./src/cliqApi');
 
-const storeMode = process.env.STORAGE_MODE || "file";
+const storeMode = process.env.STORAGE_MODE || 'file';
 const store = require(`./src/store_${storeMode}`); // store_file or store_cliq (template)
 
 const app = express();
 app.use(cors());
-// Only parse JSON on POST routes that expect it
-app.post("/cliq/appstatus", express.json(), express.urlencoded({ extended: true }), yourHandler);
-
-app.use((req, res, next) => {
-  // Zoho sometimes sends multipart encoded key/value pairs under req.body._raw
-  if (typeof req.body === "string") {
-    try {
-      req.body = JSON.parse(req.body);
-    } catch (e) {}
-  }
-
-  // If Zoho sends nested JSON as strings, parse them
-  if (req.body?.user && typeof req.body.user === "string") {
-    try {
-      req.body.user = JSON.parse(req.body.user);
-    } catch (e) {}
-  }
-
-  next();
-});
+app.use(express.json());
 
 // Health
-app.get("/", (req, res) => res.send({ ok: true, message: "Cliq Azure OAuth backend running" }));
+app.get('/', (req, res) => res.send({ ok: true, message: 'Cliq Azure OAuth backend running' }));
 
 /**
  * Cliq command entrypoint
  * Cliq will POST the full command payload here.
  * Example body (from Cliq): { user: { id: 'zl_123' }, text: 'myapp' ... }
-*/
-app.post("/cliq/appstatus", async (req, res) => {
-  console.log("BODY CONTENT:", req.body);
-  console.log("HEADERS:", req.headers);
+ */
+app.post('/cliq/appstatus', async (req, res) => {
   try {
+    console.log(req.body); // log full payload for debugging
+    console.log(req.headers); // log full payload for debugging
     const cliqUser = req.body.user;
-    const argsText = (req.body.text || "").trim(); // supports one param usage
+    const argsText = (req.body.text || '').trim(); // supports one param usage
     const appName = argsText.split(/\s+/)[0]; // basic parsing; or parse JSON payload
-    let rg = req.body.resourceGroup;
-    
+
     if (!cliqUser || !cliqUser.id) {
-      return res.send({ text: "Error: missing Cliq user id" });
+      return res.send({ text: 'Error: missing Cliq user id' });
     }
     if (!appName) {
-      return res.send({ text: "Usage: /appstatus <appName> (optionally resourceGroup,subscription via card)" });
+      return res.send({ text: 'Usage: /appstatus <appName> (optionally resourceGroup,subscription via card)' });
     }
 
     const cliqUserId = cliqUser.id;
 
     // Check storage for tokens for this cliqUserId
     const tokenRow = await store.get(cliqUserId);
-    console.log("TOKEN ROW:", tokenRow);
 
     if (!tokenRow || !tokenRow.accessToken) {
       // Build state: contains cliqUserId + original command arguments
       const encoded = state.encodeState({
         cliqUserId,
-        command: "appstatus",
-        args: { appName, resourceGroup: rg },
+        command: 'appstatus',
+        args: { appName }
       });
 
       const loginUrl = `${process.env.APP_BASE_URL}/auth/login?state=${encoded}`;
@@ -77,24 +56,24 @@ app.post("/cliq/appstatus", async (req, res) => {
       // Cliq will render the returned JSON as a card.
       return res.send({
         card: {
-          theme: "modern",
-          title: "Sign in to Azure",
+          theme: 'modern',
+          title: 'Sign in to Azure',
           subtitle: `To check "${appName}" we need you to sign in to your Azure account.`,
           sections: [
             {
               widgets: [
                 {
-                  type: "button",
-                  text: "Sign in with Microsoft",
+                  type: 'button',
+                  text: 'Sign in with Microsoft',
                   onClick: {
-                    type: "openUrl",
-                    url: loginUrl,
-                  },
-                },
-              ],
-            },
-          ],
-        },
+                    type: 'openUrl',
+                    url: loginUrl
+                  }
+                }
+              ]
+            }
+          ]
+        }
       });
     }
 
@@ -105,7 +84,7 @@ app.post("/cliq/appstatus", async (req, res) => {
     if (!subId) {
       const subs = await azureClient.listSubscriptions(accessToken);
       if (!subs || subs.length === 0) {
-        return res.send({ text: "No Azure subscriptions found for your account." });
+        return res.send({ text: 'No Azure subscriptions found for your account.' });
       }
       subId = subs[0].subscriptionId;
       // optional: persist subId
@@ -113,13 +92,14 @@ app.post("/cliq/appstatus", async (req, res) => {
     }
 
     // Try to find resource group automatically
+    let rg = req.body.resourceGroup;
     if (!rg) {
       const found = await azureClient.findWebApp(subId, accessToken, appName);
       rg = found && found.resourceGroup;
     }
 
     if (!rg) {
-      return res.send({ text: "Could not determine resource group. Please provide resourceGroup param or use the card UI." });
+      return res.send({ text: 'Could not determine resource group. Please provide resourceGroup param or use the card UI.' });
     }
 
     const appInfo = await azureClient.getWebApp(subId, rg, appName, accessToken);
@@ -127,43 +107,45 @@ app.post("/cliq/appstatus", async (req, res) => {
     // Return a nice card with status
     const responseCard = {
       card: {
-        theme: "modern",
+        theme: 'modern',
         title: `Azure App Status — ${appInfo.name}`,
         sections: [
-          { widgets: [{ type: "text", text: `State: **${appInfo.state || "Unknown"}**` }] },
-          { widgets: [{ type: "text", text: `Hostnames: ${Array.isArray(appInfo.hostNames) ? appInfo.hostNames.join(", ") : appInfo.hostNames}` }] },
-          { widgets: [{ type: "text", text: `Last Modified: ${appInfo.lastModified || "N/A"}` }] },
-        ],
-      },
+          { widgets: [{ type: 'text', text: `State: **${appInfo.state || 'Unknown'}**` }] },
+          { widgets: [{ type: 'text', text: `Hostnames: ${Array.isArray(appInfo.hostNames) ? appInfo.hostNames.join(', ') : appInfo.hostNames}` }] },
+          { widgets: [{ type: 'text', text: `Last Modified: ${appInfo.lastModified || 'N/A'}` }] }
+        ]
+      }
     };
 
     return res.send(responseCard);
+
   } catch (err) {
-    console.error("/cliq/appstatus error", err);
+    console.error('/cliq/appstatus error', err);
     return res.send({ text: `Error: ${err.message}` });
   }
 });
 
 // Step 1: redirect user to login (state forwarded from Cliq)
-app.get("/auth/login", (req, res) => {
+app.get('/auth/login', (req, res) => {
   const incomingState = req.query.state;
   const loginUrl = auth.getAuthUrl(incomingState);
   res.redirect(loginUrl);
 });
 
+
 // Step 2: callback - exchange code, create user session, persist tokens under cliqUserId and continue original command
-app.get("/auth/callback", async (req, res) => {
+app.get('/auth/callback', async (req, res) => {
   try {
     const { code, state: encodedState, error, error_description } = req.query;
     if (error) {
-      console.error("OAuth error", error, error_description);
+      console.error('OAuth error', error, error_description);
       return res.status(400).send(`OAuth error: ${error_description || error}`);
     }
-    if (!code) return res.status(400).send("Missing authorization code");
+    if (!code) return res.status(400).send('Missing authorization code');
 
     const decoded = state.decodeState(encodedState);
     const cliqUserId = decoded.cliqUserId;
-    if (!cliqUserId) return res.status(400).send("Invalid state: no cliqUserId");
+    if (!cliqUserId) return res.status(400).send('Invalid state: no cliqUserId');
 
     // exchange code for tokens (using tenant-agnostic token endpoint; auth.register... will record tenant)
     const tokenResponse = await auth.acquireTokenByCode(code, decoded);
@@ -172,9 +154,9 @@ app.get("/auth/callback", async (req, res) => {
     const user = await auth.registerOrUpdateUserFromTokenResponse(tokenResponse, cliqUserId, store);
 
     // Resume original command
-    if (decoded.command === "appstatus") {
+    if (decoded.command === 'appstatus') {
       // send intermediate message to user in Cliq
-      await cliqApi.sendMessageToCliqUser(cliqUserId, { text: "Authentication complete — fetching app status now..." });
+      await cliqApi.sendMessageToCliqUser(cliqUserId, { text: 'Authentication complete — fetching app status now...' });
 
       // run same logic as endpoint (we call azureClient directly)
       const accessToken = await auth.ensureValidAccessTokenForUser(cliqUserId, store);
@@ -182,8 +164,8 @@ app.get("/auth/callback", async (req, res) => {
       if (!subId) {
         const subs = await azureClient.listSubscriptions(accessToken);
         if (!subs || subs.length === 0) {
-          await cliqApi.sendMessageToCliqUser(cliqUserId, { text: "No Azure subscriptions found for your account." });
-          return res.send("Done — no subscriptions");
+          await cliqApi.sendMessageToCliqUser(cliqUserId, { text: 'No Azure subscriptions found for your account.' });
+          return res.send('Done — no subscriptions');
         }
         subId = subs[0].subscriptionId;
         await store.upsert(cliqUserId, { ...user, subscriptionId: subId });
@@ -191,43 +173,37 @@ app.get("/auth/callback", async (req, res) => {
 
       const appName = decoded.args.appName;
       // determine rg
-      const rg = decoded.args.resourceGroup;
-      let finalRg = rg;
-
-      // only fallback if missing
-      if (!finalRg) {
-        const found = await azureClient.findWebApp(subId, accessToken, appName);
-        finalRg = found && found.resourceGroup;
-      }
+      const found = await azureClient.findWebApp(subId, accessToken, appName);
+      const rg = found && found.resourceGroup;
       if (!rg) {
         await cliqApi.sendMessageToCliqUser(cliqUserId, { text: `Could not determine resource group for ${appName}. Provide resourceGroup.` });
-        return res.send("Done — ambiguous resource group");
+        return res.send('Done — ambiguous resource group');
       }
 
       const appInfo = await azureClient.getWebApp(subId, rg, appName, accessToken);
       const card = {
         card: {
-          theme: "modern",
+          theme: 'modern',
           title: `Azure App Status — ${appInfo.name}`,
           sections: [
-            { widgets: [{ type: "text", text: `State: **${appInfo.state || "Unknown"}**` }] },
-            {
-              widgets: [{ type: "text", text: `Hostnames: ${Array.isArray(appInfo.hostNames) ? appInfo.hostNames.join(", ") : appInfo.hostNames}` }],
-            },
-            { widgets: [{ type: "text", text: `Last Modified: ${appInfo.lastModified || "N/A"}` }] },
-          ],
-        },
+            { widgets: [{ type: 'text', text: `State: **${appInfo.state || 'Unknown'}**` }] },
+            { widgets: [{ type: 'text', text: `Hostnames: ${Array.isArray(appInfo.hostNames) ? appInfo.hostNames.join(', ') : appInfo.hostNames}` }] },
+            { widgets: [{ type: 'text', text: `Last Modified: ${appInfo.lastModified || 'N/A'}` }] }
+          ]
+        }
       };
       await cliqApi.sendMessageToCliqUser(cliqUserId, card);
     }
 
     // Show a browser message to the user (they will return to Cliq)
-    return res.send("<html><body><h3>Authentication complete — return to Zoho Cliq.</h3></body></html>");
+    return res.send('<html><body><h3>Authentication complete — return to Zoho Cliq.</h3></body></html>');
+
   } catch (err) {
-    console.error("/auth/callback error", err);
+    console.error('/auth/callback error', err);
     return res.status(500).send(`Callback error: ${err.message}`);
   }
 });
+
 
 const port = process.env.PORT || 3000;
 app.listen(port, () => console.log(`Server listening on http://localhost:${port}`));
