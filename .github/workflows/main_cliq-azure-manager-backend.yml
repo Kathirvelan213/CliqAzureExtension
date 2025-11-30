@@ -1,6 +1,3 @@
-# Docs for the Azure Web Apps Deploy action: https://github.com/Azure/webapps-deploy
-# More GitHub Actions for Azure: https://github.com/Azure/actions
-
 name: Build and deploy Node.js app to Azure Web App - cliq-azure-manager-backend
 
 on:
@@ -23,19 +20,11 @@ jobs:
         with:
           node-version: '22.x'
 
-      - name: npm install, build, and test
+      - name: npm install and build
         run: |
           npm install
           npm run build --if-present
           echo "Skipping tests"
-        env:
-          PORT: ${{ secrets.PORT }}
-          AZURE_REDIRECT_URI: ${{ secrets.AZURE_REDIRECT_URI }}
-          APP_BASE_URL: ${{ secrets.APP_BASE_URL }}
-          SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
-          STORAGE_MODE: ${{ secrets.STORAGE_MODE }}
-          CLIQ_EXTENSION_ID: ${{ secrets.CLIQ_EXTENSION_ID }}
-          CLIQ_SERVER_TOKEN: ${{ secrets.CLIQ_SERVER_TOKEN }}
 
       - name: Upload artifact for deployment job
         uses: actions/upload-artifact@v4
@@ -48,25 +37,15 @@ jobs:
     needs: build
     
     steps:
-      - name: Download artifact from build job
+      - name: Download artifact
         uses: actions/download-artifact@v4
         with:
           name: node-app
 
-      - name: 'Deploy to Azure Web App'
+      - name: Deploy to Azure Web App
         uses: azure/webapps-deploy@v3
-        id: deploy-to-webapp
         with:
           app-name: 'cliq-azure-manager-backend'
           slot-name: 'Production'
           package: .
           publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_0AFFA782A8364C79A6952288D7761A07 }}
-        env:
-          PORT: ${{ secrets.PORT }}
-          AZURE_REDIRECT_URI: ${{ secrets.AZURE_REDIRECT_URI }}
-          APP_BASE_URL: ${{ secrets.APP_BASE_URL }}
-          SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
-          STORAGE_MODE: ${{ secrets.STORAGE_MODE }}
-          CLIQ_EXTENSION_ID: ${{ secrets.CLIQ_EXTENSION_ID }}
-          CLIQ_SERVER_TOKEN: ${{ secrets.CLIQ_SERVER_TOKEN }}
-
